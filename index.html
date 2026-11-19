@@ -15,6 +15,7 @@
       <div class="logo">Poke<span>Emulador</span></div>
       <p>Jugá archivos <b>.gba</b> (Game Boy Advance) y <b>.nds</b> (Nintendo DS), como Pokémon Rojo Fuego o Pokémon Diamante.</p>
       <p>Tus juegos se guardan en este navegador. No hace falta volver a elegirlos.</p>
+      <p id="estado-hilos" class="estado"></p>
     </header>
 
     <label id="zona-drop" class="drop" for="rom">
@@ -37,8 +38,9 @@
         el movimiento sea más parejo. Se aplica al abrir un juego.
       </span>
       <select id="sel-salto">
+        <option value="ninguno" selected>Ninguno (recomendado en PCs potentes)</option>
         <option value="auto">Automático</option>
-        <option value="1" selected>Fijo: mostrar 1 de cada 2</option>
+        <option value="1">Fijo: mostrar 1 de cada 2</option>
         <option value="2">Fijo: mostrar 1 de cada 3</option>
       </select>
     </label>
