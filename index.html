@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PokeEmulador</title>
+  <link rel="preconnect" href="https://cdn.emulatorjs.org" crossorigin>
+  <link rel="stylesheet" href="Pagina.css">
+</head>
+<body>
+
+  <!-- ============ BIBLIOTECA ============ -->
+  <main id="vista-biblioteca" class="vista">
+    <header class="marca">
+      <div class="logo">Poke<span>Emulador</span></div>
+      <p>Jugá archivos <b>.gba</b> (Game Boy Advance) y <b>.nds</b> (Nintendo DS), como Pokémon Rojo Fuego o Pokémon Diamante.</p>
+      <p>Tus juegos se guardan en este navegador. No hace falta volver a elegirlos.</p>
+    </header>
+
+    <label id="zona-drop" class="drop" for="rom">
+      <input type="file" id="rom" accept=".gba,.nds,.zip" multiple hidden>
+      <strong>Arrastrá tu juego acá</strong>
+      <span>o hacé clic para elegir uno o varios archivos .gba o .nds</span>
+    </label>
+
+    <label class="opcion">
+      <input type="checkbox" id="chk-ligero" checked>
+      <span>
+        <b>Modo rendimiento</b> (recomendado para PCs lentas): salta cuadros si hace falta
+        y apaga los filtros de audio y video. Se aplica al abrir un juego.
+      </span>
+    </label>
+
+    <label class="opcion">
+      <span>
+        <b>Salto de cuadros (solo GBA)</b>: si tu PC no llega a 60 FPS, probá "Fijo" para que
+        el movimiento sea más parejo. Se aplica al abrir un juego.
+      </span>
+      <select id="sel-salto">
+        <option value="auto">Automático</option>
+        <option value="1" selected>Fijo: mostrar 1 de cada 2</option>
+        <option value="2">Fijo: mostrar 1 de cada 3</option>
+      </select>
+    </label>
+
+    <h2 class="titulo-seccion">Mis juegos</h2>
+    <div id="lista-juegos" class="grid"></div>
+    <p id="vacio" class="vacio">Todavía no agregaste ningún juego.</p>
+  </main>
+
+  <!-- ============ REPRODUCTOR ============ -->
+  <section id="vista-juego" class="vista oculto">
+    <div class="barra-superior">
+      <button id="btn-volver" class="btn sec">← Biblioteca</button>
+      <h1 id="titulo-juego">—</h1>
+      <button id="btn-fullscreen" class="btn sec">Pantalla completa</button>
+    </div>
+
+    <div class="layout">
+      <div class="pantalla-wrap">
+        <div id="pantalla"><div id="game"></div></div>
+
+        <div class="herramientas">
+          <button id="btn-ff" class="btn">⏩ Avance rápido</button>
+          <select id="sel-ff" title="Velocidad del avance rápido">
+            <option value="2">2x</option>
+            <option value="3" selected>3x</option>
+            <option value="4">4x</option>
+            <option value="6">6x</option>
+          </select>
+          <button id="btn-importar" class="btn sec">Importar estado</button>
+          <input type="file" id="archivo-estado" accept=".state" hidden>
+        </div>
+
+        <p class="atajos">
+          <kbd>Tab</kbd> mantener = avance rápido ·
+          <kbd>F5</kbd> guardado rápido ·
+          <kbd>F7</kbd> carga rápida
+        </p>
+        <p id="nota-ds" class="atajos oculto">
+          <b>Nintendo DS:</b> la pantalla táctil es la de abajo, y se maneja con el mouse.
+          Los controles de teclado se ven en el engranaje del emulador.
+        </p>
+      </div>
+
+      <aside class="panel">
+        <h2>Partidas guardadas</h2>
+        <div id="slots"></div>
+        <p class="nota">Además de esto, el guardado normal del juego (el de la batería del cartucho) se mantiene solo.</p>
+      </aside>
+    </div>
+  </section>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="Pagina.js"></script>
+</body>
+</html>
