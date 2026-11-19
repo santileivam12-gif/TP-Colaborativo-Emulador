@@ -1,0 +1,528 @@
+/* =========================================================
+   GBA Web – biblioteca + partidas guardadas + avance rápido
+   Usa EmulatorJS (núcleo mGBA) desde su CDN.
+   ========================================================= */
+
+const CDN = 'https://cdn.emulatorjs.org/stable/data/';
+const SLOTS = [
+  { id: 0, nombre: 'Autoguardado', auto: true },
+  { id: 1, nombre: 'Slot 1' },
+  { id: 2, nombre: 'Slot 2' },
+  { id: 3, nombre: 'Slot 3' },
+];
+
+/* ---------- Atajos al DOM ---------- */
+const $ = (id) => document.getElementById(id);
+const vistaBiblioteca = $('vista-biblioteca');
+const vistaJuego = $('vista-juego');
+const listaJuegos = $('lista-juegos');
+const vacio = $('vacio');
+const inputRom = $('rom');
+const zonaDrop = $('zona-drop');
+const contSlots = $('slots');
+const btnFF = $('btn-ff');
+const selFF = $('sel-ff');
+const chkLigero = $('chk-ligero');
+const selSalto = $('sel-salto');
+
+// Recordar la preferencia de rendimiento
+try {
+  const v = localStorage.getItem('gba-ligero');
+  if (v !== null) chkLigero.checked = v === '1';
+} catch (_) {}
+try {
+  const v = localStorage.getItem('gba-salto');
+  if (v !== null) selSalto.value = v;
+} catch (_) {}
+selSalto.addEventListener('change', () => {
+  try { localStorage.setItem('gba-salto', selSalto.value); } catch (_) {}
+});
+chkLigero.addEventListener('change', () => {
+  try { localStorage.setItem('gba-ligero', chkLigero.checked ? '1' : '0'); } catch (_) {}
+});
+
+/* ---------- Estado ---------- */
+let juegoActual = null;      // { id, nombre }
+let emuListo = false;
+let ffActivo = false;
+const urlsTemporales = [];
+
+/* =========================================================
+   IndexedDB
+   ========================================================= */
+let dbPromesa = null;
+
+function db() {
+  if (!dbPromesa) {
+    dbPromesa = new Promise((res, rej) => {
+      const r = indexedDB.open('gba-web', 1);
+      r.onupgradeneeded = () => {
+        const d = r.result;
+        d.createObjectStore('roms', { keyPath: 'id' });
+        d.createObjectStore('saves', { keyPath: 'key' });
+      };
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+  }
+  return dbPromesa;
+}
+
+async function dbOp(store, modo, fn) {
+  const d = await db();
+  return new Promise((res, rej) => {
+    const t = d.transaction(store, modo);
+    const req = fn(t.objectStore(store));
+    t.oncomplete = () => res(req ? req.result : undefined);
+    t.onerror = () => rej(t.error);
+    t.onabort = () => rej(t.error);
+  });
+}
+
+const romsGuardar = (rom) => dbOp('roms', 'readwrite', (s) => s.put(rom));
+const romsObtener = (id) => dbOp('roms', 'readonly', (s) => s.get(id));
+const romsTodas = () => dbOp('roms', 'readonly', (s) => s.getAll());
+const romsBorrar = (id) => dbOp('roms', 'readwrite', (s) => s.delete(id));
+
+const saveGuardar = (obj) => dbOp('saves', 'readwrite', (s) => s.put(obj));
+const saveObtener = (key) => dbOp('saves', 'readonly', (s) => s.get(key));
+const saveBorrar = (key) => dbOp('saves', 'readwrite', (s) => s.delete(key));
+
+/* =========================================================
+   Utilidades
+   ========================================================= */
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('visible');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove('visible'), 2200);
+}
+
+const limpiarNombre = (n) => n.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ');
+const tamano = (b) => (b / 1048576).toFixed(1) + ' MB';
+const fecha = (ts) =>
+  new Date(ts).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' });
+
+function descargar(blob, nombre) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = nombre;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+/* =========================================================
+   Biblioteca
+   ========================================================= */
+async function agregarArchivos(files) {
+  let n = 0;
+  for (const f of files) {
+    if (!/\.(gba|nds|zip)$/i.test(f.name)) continue;
+
+    // Detectar el sistema por la extensión (en un .zip se pregunta)
+    let sistema = /\.nds$/i.test(f.name) ? 'nds' : 'gba';
+    if (/\.zip$/i.test(f.name)) {
+      sistema = confirm(
+        `"${f.name}" es un archivo ZIP.\n\nAceptar = juego de Nintendo DS\nCancelar = juego de Game Boy Advance`
+      ) ? 'nds' : 'gba';
+    }
+
+    const id = `${f.name}-${f.size}`;
+    await romsGuardar({
+      id,
+      sistema,
+      nombre: limpiarNombre(f.name),
+      archivo: f.name,
+      size: f.size,
+      blob: f,
+      fecha: Date.now(),
+    });
+    n++;
+  }
+  if (n) toast(n === 1 ? 'Juego agregado' : `${n} juegos agregados`);
+  else toast('Elegí un archivo .gba o .nds');
+  renderBiblioteca();
+}
+
+async function renderBiblioteca() {
+  const roms = (await romsTodas()).sort((a, b) => b.fecha - a.fecha);
+  listaJuegos.innerHTML = '';
+  vacio.classList.toggle('oculto', roms.length > 0);
+
+  for (const r of roms) {
+    const card = document.createElement('div');
+    card.className = 'juego';
+    const sis = r.sistema || 'gba';
+    card.innerHTML = `
+      <div class="cart ${sis}">${sis === 'nds' ? 'DS' : 'GBA'}</div>
+      <div>
+        <h3></h3>
+        <small>${tamano(r.size)}</small>
+      </div>
+      <div class="acciones">
+        <button class="btn grande" data-jugar>Jugar</button>
+        <button class="btn peligro" data-borrar title="Quitar de la biblioteca">✕</button>
+      </div>`;
+    card.querySelector('h3').textContent = r.nombre;
+    card.querySelector('[data-jugar]').onclick = () => jugar(r.id);
+    card.querySelector('[data-borrar]').onclick = async () => {
+      if (!confirm(`¿Quitar "${r.nombre}" de la biblioteca?\nSus partidas guardadas también se borran.`)) return;
+      await romsBorrar(r.id);
+      for (const s of SLOTS) await saveBorrar(`${r.id}:${s.id}`);
+      renderBiblioteca();
+    };
+    listaJuegos.appendChild(card);
+  }
+}
+
+inputRom.addEventListener('change', (e) => {
+  agregarArchivos([...e.target.files]);
+  inputRom.value = '';
+});
+
+['dragenter', 'dragover'].forEach((ev) =>
+  zonaDrop.addEventListener(ev, (e) => {
+    e.preventDefault();
+    zonaDrop.classList.add('activo');
+  })
+);
+['dragleave', 'drop'].forEach((ev) =>
+  zonaDrop.addEventListener(ev, (e) => {
+    e.preventDefault();
+    zonaDrop.classList.remove('activo');
+  })
+);
+zonaDrop.addEventListener('drop', (e) => agregarArchivos([...e.dataTransfer.files]));
+
+/* =========================================================
+   Arrancar el emulador
+   ========================================================= */
+async function jugar(id) {
+  const rom = await romsObtener(id);
+  if (!rom) return toast('No se encontró el juego');
+
+  const sistema = rom.sistema || 'gba';
+  juegoActual = { id: rom.id, nombre: rom.nombre, sistema };
+  $('titulo-juego').textContent = rom.nombre;
+  vistaBiblioteca.classList.add('oculto');
+  vistaJuego.classList.remove('oculto');
+  document.body.classList.add('jugando');
+  $('pantalla').classList.toggle('ds', sistema === 'nds');
+  $('nota-ds').classList.toggle('oculto', sistema !== 'nds');
+  renderSlots();
+
+  const url = URL.createObjectURL(rom.blob);
+  urlsTemporales.push(url);
+
+  // --- Configuración de EmulatorJS ---
+  window.EJS_player = '#game';
+  window.EJS_core = sistema;   // 'gba' o 'nds'
+  window.EJS_gameName = rom.nombre;
+  window.EJS_gameUrl = url;
+  window.EJS_pathtodata = CDN;
+  window.EJS_startOnLoaded = true;
+  window.EJS_threads = false;           // evita requerir cabeceras especiales
+  window.EJS_color = '#7c5cff';
+  window.EJS_defaultOptions = opcionesEmulador(chkLigero.checked, sistema);
+  // Solo dejamos los botones que no duplican los nuestros
+  window.EJS_Buttons = {
+    playPause: true,
+    restart: true,
+    mute: true,
+    settings: true,
+    fullscreen: false,
+    saveState: false,
+    loadState: false,
+    quickSave: false,
+    quickLoad: false,
+    screenRecord: false,
+    gamepad: true,
+    cheat: false,
+    netplay: false,
+    exitEmulation: false,
+    cacheManager: false,
+  };
+  window.EJS_onGameStart = () => {
+    emuListo = true;
+    toast('Juego listo');
+  };
+
+  const s = document.createElement('script');
+  s.src = CDN + 'loader.js';
+  s.onerror = () =>
+    toast('No se pudo cargar el emulador. Revisá tu conexión o el bloqueador de anuncios.');
+  document.body.appendChild(s);
+}
+
+/* Opciones del emulador. En el modo rendimiento se apagan filtros y se
+   permite saltar cuadros automáticamente cuando la CPU no llega a 60 FPS. */
+function opcionesEmulador(ligero, sistema) {
+  const base = { shader: 'disabled' };
+  // Las opciones de salto de cuadros de abajo son del núcleo de GBA (mGBA)
+  if (!ligero || sistema !== 'gba') return base;
+  const salto = selSalto.value === 'auto'
+    ? { mgba_frameskip: 'auto' }
+    : { mgba_frameskip: 'fixed_interval', mgba_frameskip_interval: selSalto.value };
+  return {
+    ...base,
+    ...salto,
+    mgba_audio_low_pass_filter: 'disabled',
+    mgba_interframe_blending: 'disabled',
+    mgba_skip_bios: 'ON',
+  };
+}
+
+const gm = () => window.EJS_emulator && window.EJS_emulator.gameManager;
+
+/* =========================================================
+   Avance rápido
+   ========================================================= */
+function setFF(activo) {
+  const g = gm();
+  if (!g || !emuListo) return;
+  ffActivo = activo;
+  try {
+    const ratio = parseFloat(selFF.value);
+    if (g.setFastForwardRatio) g.setFastForwardRatio(ratio);
+    if (g.toggleFastForward) g.toggleFastForward(activo ? 1 : 0);
+  } catch (err) {
+    console.warn('Avance rápido no disponible:', err);
+  }
+  btnFF.classList.toggle('activo', activo);
+  btnFF.textContent = activo ? `⏩ ${selFF.value}x activo` : '⏩ Avance rápido';
+}
+
+btnFF.addEventListener('click', () => setFF(!ffActivo));
+selFF.addEventListener('change', () => ffActivo && setFF(true));
+
+/* =========================================================
+   Partidas guardadas (slots)
+   ========================================================= */
+/* Pausar el emulador mientras se lee o escribe un estado evita copias a medias
+   o desactualizadas mientras el juego sigue avanzando. */
+const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function pausarEmu() {
+  const e = window.EJS_emulator;
+  try {
+    if (e && !e.paused) {
+      e.pause(true);
+      return true;
+    }
+  } catch (err) {
+    console.warn('No se pudo pausar:', err);
+  }
+  return false;
+}
+
+function reanudarEmu() {
+  try { window.EJS_emulator.play(true); } catch (err) { console.warn('No se pudo reanudar:', err); }
+}
+
+// Huella corta del estado: sirve para comprobar que cada guardado es distinto
+function firmaEstado(bytes) {
+  let h = 2166136261;
+  for (let i = 0; i < bytes.length; i += 7) {
+    h ^= bytes[i];
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(16).padStart(8, '0');
+}
+
+let guardando = false;
+
+// Espera una promesa, pero no más de `ms` milisegundos (devuelve null si se pasa)
+const conTiempo = (p, ms) =>
+  Promise.race([Promise.resolve(p), new Promise((r) => setTimeout(() => r(null), ms))]);
+
+async function guardarSlot(slot, silencioso = false) {
+  const g = gm();
+  if (!g || !emuListo || !juegoActual || guardando) return;
+  guardando = true;
+  const key = `${juegoActual.id}:${slot}`;
+  const estabaCorriendo = pausarEmu();
+
+  try {
+    await esperar(80); // deja terminar el cuadro en curso
+    const crudo = g.getState();
+    if (!crudo || !crudo.length) throw new Error('El emulador devolvió un estado vacío');
+
+    // Se copia el estado: el buffer original pertenece al emulador y puede cambiar
+    const copia = new Uint8Array(crudo);
+    const firma = firmaEstado(copia);
+    console.log(`[guardado] slot ${slot} · ${copia.length} bytes · huella ${firma}`);
+    const estado = new Blob([copia]);
+
+    // 1) Se guarda el estado YA, sin esperar a la captura de pantalla
+    await saveGuardar({
+      key,
+      romId: juegoActual.id,
+      slot,
+      estado,
+      firma,
+      captura: null,
+      fecha: Date.now(),
+    });
+    renderSlots();
+    if (!silencioso) toast(slot === 1 ? 'Guardado rápido listo' : 'Partida guardada');
+
+    // 2) La captura es opcional y con límite de tiempo: si el emulador no la
+    //    entrega, el guardado igual queda hecho
+    if (!silencioso) {
+      try {
+        const shot = await conTiempo(g.screenshot(), 1500);
+        if (shot && shot.length) {
+          const reg = await saveObtener(key);
+          if (reg) {
+            reg.captura = new Blob([shot], { type: 'image/png' });
+            await saveGuardar(reg);
+            renderSlots();
+          }
+        }
+      } catch (_) { /* sin captura */ }
+    }
+  } catch (err) {
+    console.error('Error al guardar:', err);
+    if (!silencioso) toast('No se pudo guardar (mirá la consola F12)');
+  } finally {
+    if (estabaCorriendo) reanudarEmu();
+    guardando = false;
+  }
+}
+
+async function cargarSlot(slot) {
+  const g = gm();
+  if (!g || !emuListo || !juegoActual) return;
+  const reg = await saveObtener(`${juegoActual.id}:${slot}`);
+  if (!reg) return toast('Ese slot está vacío');
+  const estabaCorriendo = pausarEmu();
+  try {
+    const buf = await reg.estado.arrayBuffer();
+    await esperar(80);
+    g.loadState(new Uint8Array(buf));
+    console.log(`[carga] slot ${slot} · huella ${reg.firma || '?'}`);
+    toast('Partida cargada');
+  } catch (err) {
+    console.error(err);
+    toast('No se pudo cargar');
+  } finally {
+    if (estabaCorriendo) reanudarEmu();
+  }
+}
+
+async function exportarSlot(slot) {
+  const reg = await saveObtener(`${juegoActual.id}:${slot}`);
+  if (!reg) return toast('Ese slot está vacío');
+  descargar(reg.estado, `${juegoActual.nombre} - slot${slot}.state`);
+}
+
+async function borrarSlot(slot) {
+  await saveBorrar(`${juegoActual.id}:${slot}`);
+  renderSlots();
+}
+
+async function renderSlots() {
+  if (!juegoActual) return;
+  contSlots.innerHTML = '';
+
+  for (const s of SLOTS) {
+    const reg = await saveObtener(`${juegoActual.id}:${s.id}`);
+    const el = document.createElement('div');
+    el.className = 'slot';
+
+    let miniHTML = '<div class="mini">vacío</div>';
+    if (reg && reg.captura) {
+      const u = URL.createObjectURL(reg.captura);
+      urlsTemporales.push(u);
+      miniHTML = `<div class="mini"><img src="${u}" alt=""></div>`;
+    } else if (reg) {
+      miniHTML = '<div class="mini">sin imagen</div>';
+    }
+
+    el.innerHTML = `
+      <div class="slot-top">
+        ${miniHTML}
+        <div class="info">
+          <b>${s.nombre}</b>
+          <small>${reg ? fecha(reg.fecha) + (reg.firma ? ' · #' + reg.firma.slice(0, 4) : '') : 'Sin datos'}</small>
+        </div>
+      </div>
+      <div class="botones">
+        ${s.auto ? '' : '<button class="btn" data-g>Guardar</button>'}
+        <button class="btn sec" data-c ${reg ? '' : 'disabled'}>Cargar</button>
+        <button class="btn sec" data-e ${reg ? '' : 'disabled'} title="Descargar archivo .state">⬇</button>
+        <button class="btn peligro" data-b ${reg ? '' : 'disabled'} title="Borrar">✕</button>
+      </div>`;
+
+    const q = (sel) => el.querySelector(sel);
+    if (q('[data-g]')) q('[data-g]').onclick = () => guardarSlot(s.id);
+    q('[data-c]').onclick = () => cargarSlot(s.id);
+    q('[data-e]').onclick = () => exportarSlot(s.id);
+    q('[data-b]').onclick = () => borrarSlot(s.id);
+    contSlots.appendChild(el);
+  }
+}
+
+/* ---------- Importar un .state desde el disco ---------- */
+$('btn-importar').addEventListener('click', () => $('archivo-estado').click());
+$('archivo-estado').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f || !gm() || !emuListo) return;
+  const estabaCorriendo = pausarEmu();
+  try {
+    const datos = new Uint8Array(await f.arrayBuffer());
+    await esperar(80);
+    gm().loadState(datos);
+    console.log(`[importar] ${datos.length} bytes · huella ${firmaEstado(datos)}`);
+    toast('Estado importado');
+  } catch (err) {
+    console.error(err);
+    toast('Archivo de estado inválido');
+  } finally {
+    if (estabaCorriendo) reanudarEmu();
+  }
+});
+
+/* =========================================================
+   Teclado y otros
+   ========================================================= */
+document.addEventListener('keydown', (e) => {
+  if (vistaJuego.classList.contains('oculto')) return;
+
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    if (!e.repeat && !ffActivo) setFF(true);
+  } else if (e.key === 'F5') {
+    e.preventDefault();
+    if (!e.repeat) guardarSlot(1);
+  } else if (e.key === 'F7') {
+    e.preventDefault();
+    if (!e.repeat) cargarSlot(1);
+  }
+});
+
+document.addEventListener('keyup', (e) => {
+  if (e.key === 'Tab' && ffActivo) setFF(false);
+});
+
+// Autoguardado al cambiar de pestaña o cerrar
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && emuListo) guardarSlot(0, true);
+});
+
+$('btn-fullscreen').addEventListener('click', () => {
+  const el = $('pantalla');
+  if (document.fullscreenElement) document.exitFullscreen();
+  else if (el.requestFullscreen) el.requestFullscreen();
+});
+
+$('btn-volver').addEventListener('click', async () => {
+  if (emuListo) await guardarSlot(0, true);
+  // EmulatorJS no se reinicia limpio: recargamos para liberar memoria
+  location.reload();
+});
+
+/* ---------- Inicio ---------- */
+renderBiblioteca();
