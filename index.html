@@ -3,11 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-<<<<<<< HEAD
-  <title>PokeEmulador </title>
-=======
-  <title>PokeEmulador </title>
->>>>>>> d90e3e5c5405b346036e641e916f6e0a92df13c3
+  <title>PokeEmulador</title>
   <link rel="preconnect" href="https://cdn.emulatorjs.org" crossorigin>
   <link rel="stylesheet" href="Pagina.css">
 </head>
@@ -19,6 +15,7 @@
       <div class="logo">Poke<span>Emulador</span></div>
       <p>Jugá archivos <b>.gba</b> (Game Boy Advance) y <b>.nds</b> (Nintendo DS), como Pokémon Rojo Fuego o Pokémon Diamante.</p>
       <p>Tus juegos se guardan en este navegador. No hace falta volver a elegirlos.</p>
+      <p id="estado-hilos" class="estado"></p>
     </header>
 
     <label id="zona-drop" class="drop" for="rom">
@@ -41,8 +38,9 @@
         el movimiento sea más parejo. Se aplica al abrir un juego.
       </span>
       <select id="sel-salto">
+        <option value="ninguno" selected>Ninguno (recomendado en PCs potentes)</option>
         <option value="auto">Automático</option>
-        <option value="1" selected>Fijo: mostrar 1 de cada 2</option>
+        <option value="1">Fijo: mostrar 1 de cada 2</option>
         <option value="2">Fijo: mostrar 1 de cada 3</option>
       </select>
     </label>
@@ -55,7 +53,7 @@
   <!-- ============ REPRODUCTOR ============ -->
   <section id="vista-juego" class="vista oculto">
     <div class="barra-superior">
-      <button id="btn-volver" class="btn sec">← Biblioteca</button>
+      <button id="btn-volver" class="btn sec">? Biblioteca</button>
       <h1 id="titulo-juego">—</h1>
       <button id="btn-fullscreen" class="btn sec">Pantalla completa</button>
     </div>
@@ -65,7 +63,7 @@
         <div id="pantalla"><div id="game"></div></div>
 
         <div class="herramientas">
-          <button id="btn-ff" class="btn">⏩ Avance rápido</button>
+          <button id="btn-ff" class="btn">? Avance rápido</button>
           <select id="sel-ff" title="Velocidad del avance rápido">
             <option value="2">2x</option>
             <option value="3" selected>3x</option>

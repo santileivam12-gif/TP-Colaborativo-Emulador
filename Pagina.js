@@ -24,6 +24,36 @@ const btnFF = $('btn-ff');
 const selFF = $('sel-ff');
 const chkLigero = $('chk-ligero');
 const selSalto = $('sel-salto');
+const estadoHilos = $('estado-hilos');
+
+/* Multihilo: solo disponible si el servidor envía las cabeceras COOP/COEP
+   (ver servidor.js). Con hilos, el emulador reparte el trabajo entre varios
+   núcleos del procesador y rinde mucho más. */
+const hilosOk = window.crossOriginIsolated === true && typeof SharedArrayBuffer !== 'undefined';
+if (estadoHilos) {
+  estadoHilos.textContent = hilosOk
+    ? '? Multihilo activado'
+    : 'Multihilo desactivado (opcional: agregá sw.js junto al index.html)';
+  estadoHilos.classList.toggle('ok', hilosOk);
+}
+
+/* Opcional: si existe sw.js en la misma carpeta, un service worker agrega las
+   cabeceras necesarias y la página se recarga una sola vez con multihilo.
+   Si el archivo no está, todo sigue funcionando igual que antes. */
+if (!hilosOk && 'serviceWorker' in navigator && window.isSecureContext) {
+  navigator.serviceWorker
+    .register('sw.js')
+    .then(() => navigator.serviceWorker.ready)
+    .then(() => {
+      let yaRecargo = false;
+      try { yaRecargo = sessionStorage.getItem('coi-recargado') === '1'; } catch (_) {}
+      if (!window.crossOriginIsolated && !yaRecargo) {
+        try { sessionStorage.setItem('coi-recargado', '1'); } catch (_) {}
+        location.reload();
+      }
+    })
+    .catch(() => { /* sin sw.js: se sigue sin multihilo */ });
+}
 
 // Recordar la preferencia de rendimiento
 try {
@@ -31,11 +61,11 @@ try {
   if (v !== null) chkLigero.checked = v === '1';
 } catch (_) {}
 try {
-  const v = localStorage.getItem('gba-salto');
+  const v = localStorage.getItem('gba-salto-v2');
   if (v !== null) selSalto.value = v;
 } catch (_) {}
 selSalto.addEventListener('change', () => {
-  try { localStorage.setItem('gba-salto', selSalto.value); } catch (_) {}
+  try { localStorage.setItem('gba-salto-v2', selSalto.value); } catch (_) {}
 });
 chkLigero.addEventListener('change', () => {
   try { localStorage.setItem('gba-ligero', chkLigero.checked ? '1' : '0'); } catch (_) {}
@@ -162,7 +192,7 @@ async function renderBiblioteca() {
       </div>
       <div class="acciones">
         <button class="btn grande" data-jugar>Jugar</button>
-        <button class="btn peligro" data-borrar title="Quitar de la biblioteca">✕</button>
+        <button class="btn peligro" data-borrar title="Quitar de la biblioteca">?</button>
       </div>`;
     card.querySelector('h3').textContent = r.nombre;
     card.querySelector('[data-jugar]').onclick = () => jugar(r.id);
@@ -222,7 +252,8 @@ async function jugar(id) {
   window.EJS_gameUrl = url;
   window.EJS_pathtodata = CDN;
   window.EJS_startOnLoaded = true;
-  window.EJS_threads = false;           // evita requerir cabeceras especiales
+  window.EJS_threads = hilosOk;
+  if (new URLSearchParams(location.search).has('debug')) window.EJS_DEBUG_XX = true;
   window.EJS_color = '#7c5cff';
   window.EJS_defaultOptions = opcionesEmulador(chkLigero.checked, sistema);
   // Solo dejamos los botones que no duplican los nuestros
@@ -261,9 +292,10 @@ function opcionesEmulador(ligero, sistema) {
   const base = { shader: 'disabled' };
   // Las opciones de salto de cuadros de abajo son del núcleo de GBA (mGBA)
   if (!ligero || sistema !== 'gba') return base;
-  const salto = selSalto.value === 'auto'
-    ? { mgba_frameskip: 'auto' }
-    : { mgba_frameskip: 'fixed_interval', mgba_frameskip_interval: selSalto.value };
+  let salto = { mgba_frameskip: 'disabled' };
+  if (selSalto.value === 'auto') salto = { mgba_frameskip: 'auto' };
+  else if (selSalto.value === '1' || selSalto.value === '2')
+    salto = { mgba_frameskip: 'fixed_interval', mgba_frameskip_interval: selSalto.value };
   return {
     ...base,
     ...salto,
@@ -282,15 +314,25 @@ function setFF(activo) {
   const g = gm();
   if (!g || !emuListo) return;
   ffActivo = activo;
+  const e = window.EJS_emulator;
+  const ratio = parseFloat(selFF.value);
   try {
-    const ratio = parseFloat(selFF.value);
-    if (g.setFastForwardRatio) g.setFastForwardRatio(ratio);
-    if (g.toggleFastForward) g.toggleFastForward(activo ? 1 : 0);
+    if (typeof g.setFastForwardRatio === 'function' && typeof g.toggleFastForward === 'function') {
+      g.setFastForwardRatio(ratio);
+      g.toggleFastForward(activo ? 1 : 0);
+    } else if (e && typeof e.changeSettingOption === 'function') {
+      e.changeSettingOption('ff-ratio', ratio.toFixed(1));
+      e.changeSettingOption('fastForward', activo ? 'enabled' : 'disabled');
+    } else {
+      toast('Esta versión del emulador no permite avance rápido');
+    }
+    console.log(`[avance rápido] ${activo ? 'ON' : 'OFF'} · ${ratio}x`);
   } catch (err) {
     console.warn('Avance rápido no disponible:', err);
+    toast('No se pudo activar el avance rápido');
   }
   btnFF.classList.toggle('activo', activo);
-  btnFF.textContent = activo ? `⏩ ${selFF.value}x activo` : '⏩ Avance rápido';
+  btnFF.textContent = activo ? `? ${selFF.value}x activo` : '? Avance rápido';
 }
 
 btnFF.addEventListener('click', () => setFF(!ffActivo));
@@ -451,8 +493,8 @@ async function renderSlots() {
       <div class="botones">
         ${s.auto ? '' : '<button class="btn" data-g>Guardar</button>'}
         <button class="btn sec" data-c ${reg ? '' : 'disabled'}>Cargar</button>
-        <button class="btn sec" data-e ${reg ? '' : 'disabled'} title="Descargar archivo .state">⬇</button>
-        <button class="btn peligro" data-b ${reg ? '' : 'disabled'} title="Borrar">✕</button>
+        <button class="btn sec" data-e ${reg ? '' : 'disabled'} title="Descargar archivo .state">?</button>
+        <button class="btn peligro" data-b ${reg ? '' : 'disabled'} title="Borrar">?</button>
       </div>`;
 
     const q = (sel) => el.querySelector(sel);

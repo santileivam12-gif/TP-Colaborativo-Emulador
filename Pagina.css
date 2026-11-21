@@ -244,7 +244,7 @@ kbd {
   .barra-superior h1 { order: 3; flex-basis: 100%; }
 }
 
-/* ---------- Optimización para equipos lentos ---------- */
+/* ---------- Optimizaci n para equipos lentos ---------- */
 .pantalla-wrap { width: 100%; max-width: 720px; margin: 0 auto; }
 
 .opcion {
@@ -263,7 +263,7 @@ kbd {
 .opcion b { color: var(--texto); }
 .opcion input { margin-top: 3px; accent-color: var(--acento); }
 
-/* Mientras se juega: sin animaciones ni transiciones que repinten la página */
+/* Mientras se juega: sin animaciones ni transiciones que repinten la p gina */
 .jugando *, .jugando *::before, .jugando *::after {
   transition: none !important;
   animation: none !important;
@@ -280,3 +280,15 @@ kbd {
   max-width: 100%;
   margin: 0 auto;
 }
+
+/* ---------- Estado del multihilo ---------- */
+.estado {
+  display: inline-block;
+  margin: 8px 0 0;
+  padding: 5px 14px;
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  font-size: .82rem;
+  color: var(--suave);
+}
+.estado.ok { color: var(--ok); border-color: var(--ok); }
