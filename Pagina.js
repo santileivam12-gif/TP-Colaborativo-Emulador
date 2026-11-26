@@ -201,6 +201,30 @@ async function agregarArchivos(files) {
   renderBiblioteca();
 }
 
+/* Carátulas: se piden en el momento al servidor público de miniaturas de
+   Libretro (no se guardan en el proyecto). Los nombres siguen la nomenclatura
+   No-Intro, como los de tus archivos. Si no existe la imagen, se muestra el
+   recuadro de color de siempre. */
+const CARPETA_LIBRETRO = {
+  gb: 'Nintendo - Game Boy',
+  gbc: 'Nintendo - Game Boy Color',
+  gba: 'Nintendo - Game Boy Advance',
+  nds: 'Nintendo - Nintendo DS',
+  n64: 'Nintendo - Nintendo 64',
+};
+
+function urlPortadaOnline(r) {
+  const sis = r.sistema || 'gba';
+  const clave = sis === 'gb' && r.etiqueta === 'GBC' ? 'gbc' : sis;
+  const carpeta = CARPETA_LIBRETRO[clave];
+  if (!carpeta || !r.archivo) return null;
+
+  let nombre = r.archivo.replace(/\.[^.]+$/, '');   // sin extensión
+  nombre = nombre.replace(/^\d{1,5}\s*-\s*/, '');    // quita prefijos tipo "4833 - "
+  nombre = nombre.replace(/[&*\/:`<>?\\|]/g, '_');  // caracteres que Libretro reemplaza
+  return `https://thumbnails.libretro.com/${encodeURIComponent(carpeta)}/Named_Boxarts/${encodeURIComponent(nombre)}.png`;
+}
+
 async function renderBiblioteca() {
   const roms = (await romsTodas()).sort((a, b) => b.fecha - a.fecha);
   listaJuegos.innerHTML = '';
@@ -211,7 +235,11 @@ async function renderBiblioteca() {
     card.className = 'juego';
     const sis = r.sistema || 'gba';
     card.innerHTML = `
-      <div class="cart ${sis}">${r.etiqueta || ETIQUETA_SISTEMA[sis] || sis.toUpperCase()}</div>
+      <div class="cart ${sis}">
+        <img class="portada" alt="" referrerpolicy="no-referrer" hidden>
+        <span class="etiqueta">${r.etiqueta || ETIQUETA_SISTEMA[sis] || sis.toUpperCase()}</span>
+        <button class="cambiar-foto" title="Elegir una foto propia para este juego">🖼</button>
+      </div>
       <div>
         <h3></h3>
         <small>${tamano(r.size)}</small>
@@ -221,11 +249,56 @@ async function renderBiblioteca() {
         <button class="btn peligro" data-borrar title="Quitar de la biblioteca">✕</button>
       </div>`;
     card.querySelector('h3').textContent = r.nombre;
+
+    // --- Portada: foto propia (si la hay) o carátula online; si falla, queda el recuadro de color ---
+    const img = card.querySelector('.portada');
+    const propia = await saveObtener(`portada:${r.id}`);
+    let srcPortada = null;
+    if (propia && propia.blob) {
+      srcPortada = URL.createObjectURL(propia.blob);
+      urlsTemporales.push(srcPortada);
+    } else {
+      srcPortada = urlPortadaOnline(r);
+    }
+    if (srcPortada) {
+      img.onload = () => {
+        img.hidden = false;
+        card.classList.add('con-foto');
+      };
+      img.onerror = () => img.remove();
+      img.src = srcPortada;
+    } else {
+      img.remove();
+    }
+
+    // --- Botón para elegir una foto propia ---
+    const inputFoto = document.createElement('input');
+    inputFoto.type = 'file';
+    inputFoto.accept = 'image/*';
+    inputFoto.hidden = true;
+    card.appendChild(inputFoto);
+    card.querySelector('.cambiar-foto').onclick = () => inputFoto.click();
+    inputFoto.onchange = async () => {
+      const f = inputFoto.files[0];
+      if (!f) return;
+      try {
+        const bmp = await createImageBitmap(f);
+        const blob = await reducir(bmp, 400);
+        await saveGuardar({ key: `portada:${r.id}`, blob });
+        toast('Foto actualizada');
+        renderBiblioteca();
+      } catch (err) {
+        console.error(err);
+        toast('No se pudo usar esa imagen');
+      }
+    };
+
     card.querySelector('[data-jugar]').onclick = () => jugar(r.id);
     card.querySelector('[data-borrar]').onclick = async () => {
       if (!confirm(`¿Quitar "${r.nombre}" de la biblioteca?\nSus partidas guardadas también se borran.`)) return;
       await romsBorrar(r.id);
       for (const s of SLOTS) await saveBorrar(`${r.id}:${s.id}`);
+      await saveBorrar(`portada:${r.id}`);
       renderBiblioteca();
     };
     listaJuegos.appendChild(card);
@@ -284,7 +357,8 @@ async function jugar(id) {
   window.EJS_gameUrl = url;
   window.EJS_pathtodata = CDN;
   window.EJS_startOnLoaded = true;
-  window.EJS_threads = hilosOk;
+  // Con ?sinhilos en la dirección se fuerza el modo de un solo hilo (útil si un juego no arranca)
+  window.EJS_threads = hilosOk && !new URLSearchParams(location.search).has('sinhilos');
   if (new URLSearchParams(location.search).has('debug')) window.EJS_DEBUG_XX = true;
   window.EJS_color = '#7c5cff';
   window.EJS_defaultOptions = opcionesEmulador(chkLigero.checked, sistema);

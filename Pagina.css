@@ -369,3 +369,58 @@ kbd {
   #pantalla.ds { height: min(70vh, 640px); }
   .slot .botones .btn { padding: 8px 6px; }
 }
+
+/* ---------- Portadas de los juegos ---------- */
+.juego .cart {
+  position: relative;
+  height: 160px;
+  overflow: hidden;
+}
+.juego .cart .portada {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #0a0814;
+}
+.juego .cart .etiqueta { position: relative; z-index: 1; }
+
+/* Con foto, la etiqueta pasa a ser una insignia en la esquina */
+.juego.con-foto .cart .etiqueta {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  z-index: 2;
+  padding: 2px 9px;
+  font-size: .7rem;
+  letter-spacing: 1px;
+  border-radius: 6px;
+  background: #000b;
+}
+
+.juego .cart .cambiar-foto {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  z-index: 3;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  background: #000b;
+  color: #fff;
+  font-size: .9rem;
+  cursor: pointer;
+  opacity: 0;
+}
+.juego .cart:hover .cambiar-foto,
+.juego .cart .cambiar-foto:focus-visible { opacity: 1; }
+
+@media (hover: none) {
+  .juego .cart .cambiar-foto { opacity: .85; }
+}
+@media (max-width: 640px) {
+  .juego .cart { height: 130px; }
+}
