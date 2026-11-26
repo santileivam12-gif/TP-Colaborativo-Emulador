@@ -225,6 +225,104 @@ function urlPortadaOnline(r) {
   return `https://thumbnails.libretro.com/${encodeURIComponent(carpeta)}/Named_Boxarts/${encodeURIComponent(nombre)}.png`;
 }
 
+/* ---------- Búsqueda automática de carátulas ----------
+   1) Libretro con el nombre exacto y varias variantes de región.
+   2) Si no hay, Wikipedia (juegos oficiales de Pokémon, también con nombres en español).
+   El resultado se recuerda para no volver a buscar. */
+const JUEGOS_WIKI = [
+  [/rojo fuego|fire ?red/, 'Pokémon FireRed and LeafGreen'],
+  [/verde hoja|leaf ?green/, 'Pokémon FireRed and LeafGreen'],
+  [/heart ?gold|soul ?silver|oro heart|plata soul/, 'Pokémon HeartGold and SoulSilver'],
+  [/platino|platinum/, 'Pokémon Platinum'],
+  [/diamante|diamond|perla|pearl/, 'Pokémon Diamond and Pearl'],
+  [/black ?2|white ?2|negra ?2|blanca ?2/, 'Pokémon Black 2 and White 2'],
+  [/black|white|negra|blanca/, 'Pokémon Black and White'],
+  [/esmeralda|emerald/, 'Pokémon Emerald'],
+  [/rubi|ruby|zafiro|sapphire/, 'Pokémon Ruby and Sapphire'],
+  [/cristal|crystal/, 'Pokémon Crystal'],
+  [/\boro\b|\bplata\b|gold|silver/, 'Pokémon Gold and Silver'],
+  [/amarilla|yellow/, 'Pokémon Yellow'],
+  [/\broja\b|\bazul\b|\bred\b|\bblue\b|\brojo\b/, 'Pokémon Red and Blue'],
+  [/stadium ?2/, 'Pokémon Stadium 2'],
+  [/stadium/, 'Pokémon Stadium'],
+  [/snap/, 'Pokémon Snap'],
+  [/pinball/, 'Pokémon Pinball'],
+  [/puzzle league/, 'Pokémon Puzzle League'],
+  [/puzzle challenge/, 'Pokémon Puzzle Challenge'],
+  [/trading card|cartas/, 'Pokémon Trading Card Game (video game)'],
+  [/mystery dungeon|mazmorra/, 'Pokémon Mystery Dungeon: Red Rescue Team and Blue Rescue Team'],
+  [/colosseum/, 'Pokémon Colosseum'],
+];
+
+function sinTildes(t) { return t.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
+
+function candidatasLibretro(r) {
+  const sis = r.sistema || 'gba';
+  const clave = sis === 'gb' && r.etiqueta === 'GBC' ? 'gbc' : sis;
+  const carpeta = CARPETA_LIBRETRO[clave];
+  if (!carpeta || !r.archivo) return [];
+  const limpiar = (n) => n.replace(/[&*\/:`<>?\\|]/g, '_');
+  const url = (n) => `https://thumbnails.libretro.com/${encodeURIComponent(carpeta)}/Named_Boxarts/${encodeURIComponent(limpiar(n))}.png`;
+
+  let base = r.archivo.replace(/\.[^.]+$/, '').replace(/^\d{1,5}\s*-\s*/, '').trim();
+  const titulo = base.replace(/\s*[\(\[].*$/, '').trim();   // sin los paréntesis
+  const nombres = [base, titulo];
+  for (const reg of ['Spain', 'Europe', 'USA', 'USA, Europe', 'Europe, Australia', 'Japan']) {
+    nombres.push(`${titulo} (${reg})`);
+  }
+  return [...new Set(nombres)].map(url);
+}
+
+function probarImagen(url) {
+  return new Promise((ok) => {
+    const i = new Image();
+    i.referrerPolicy = 'no-referrer';
+    i.onload = () => ok(true);
+    i.onerror = () => ok(false);
+    i.src = url;
+  });
+}
+
+async function portadaWikipedia(r) {
+  const nombre = sinTildes((r.nombre || r.archivo || '').toLowerCase());
+  const hit = JUEGOS_WIKI.find(([re]) => re.test(nombre));
+  if (!hit || !/pokemon|pokémon|stadium|snap|pinball/.test(nombre)) return null;
+  const api = 'https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*'
+    + '&generator=search&gsrlimit=3&prop=pageimages&piprop=thumbnail&pithumbsize=400'
+    + '&gsrsearch=' + encodeURIComponent(hit[1]);
+  const resp = await fetch(api);
+  const datos = await resp.json();
+  const paginas = Object.values((datos.query && datos.query.pages) || {})
+    .sort((a, b) => a.index - b.index);
+  const con = paginas.find((p) => p.thumbnail && p.thumbnail.source);
+  return con ? con.thumbnail.source : null;
+}
+
+async function buscarPortada(r) {
+  const clave = `portada-url:${r.id}`;
+  try {
+    const guardada = localStorage.getItem(clave);
+    if (guardada && guardada !== '-') return guardada;
+    if (guardada === '-' && Date.now() - Number(localStorage.getItem(clave + ':t') || 0) < 7 * 864e5) return null;
+  } catch (_) {}
+
+  let encontrada = null;
+  for (const u of candidatasLibretro(r)) {
+    if (await probarImagen(u)) { encontrada = u; break; }
+  }
+  if (!encontrada) {
+    try {
+      const w = await portadaWikipedia(r);
+      if (w && await probarImagen(w)) encontrada = w;
+    } catch (err) { console.warn('Portada Wikipedia:', err); }
+  }
+  try {
+    localStorage.setItem(clave, encontrada || '-');
+    if (!encontrada) localStorage.setItem(clave + ':t', String(Date.now()));
+  } catch (_) {}
+  return encontrada;
+}
+
 async function renderBiblioteca() {
   const roms = (await romsTodas()).sort((a, b) => b.fecha - a.fecha);
   listaJuegos.innerHTML = '';
@@ -253,22 +351,18 @@ async function renderBiblioteca() {
     // --- Portada: foto propia (si la hay) o carátula online; si falla, queda el recuadro de color ---
     const img = card.querySelector('.portada');
     const propia = await saveObtener(`portada:${r.id}`);
-    let srcPortada = null;
-    if (propia && propia.blob) {
-      srcPortada = URL.createObjectURL(propia.blob);
-      urlsTemporales.push(srcPortada);
-    } else {
-      srcPortada = urlPortadaOnline(r);
-    }
-    if (srcPortada) {
-      img.onload = () => {
-        img.hidden = false;
-        card.classList.add('con-foto');
-      };
+    const mostrar = (src) => {
+      img.onload = () => { img.hidden = false; card.classList.add('con-foto'); };
       img.onerror = () => img.remove();
-      img.src = srcPortada;
+      img.src = src;
+    };
+    if (propia && propia.blob) {
+      const src = URL.createObjectURL(propia.blob);
+      urlsTemporales.push(src);
+      mostrar(src);
     } else {
-      img.remove();
+      // Búsqueda en segundo plano: no frena la carga de la biblioteca
+      buscarPortada(r).then((src) => (src ? mostrar(src) : img.remove()));
     }
 
     // --- Botón para elegir una foto propia ---
@@ -299,6 +393,7 @@ async function renderBiblioteca() {
       await romsBorrar(r.id);
       for (const s of SLOTS) await saveBorrar(`${r.id}:${s.id}`);
       await saveBorrar(`portada:${r.id}`);
+      try { localStorage.removeItem(`portada-url:${r.id}`); } catch (_) {}
       renderBiblioteca();
     };
     listaJuegos.appendChild(card);

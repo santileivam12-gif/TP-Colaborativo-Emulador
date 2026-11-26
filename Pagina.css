@@ -413,7 +413,7 @@ kbd {
   color: #fff;
   font-size: .9rem;
   cursor: pointer;
-  opacity: 0;
+  opacity: .85;
 }
 .juego .cart:hover .cambiar-foto,
 .juego .cart .cambiar-foto:focus-visible { opacity: 1; }
