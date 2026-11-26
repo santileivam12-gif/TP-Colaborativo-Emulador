@@ -281,22 +281,33 @@ function carpetasLibretro(r) {
   return c ? [c] : [];
 }
 
-const BASE_LIBRETRO = 'https://thumbnails.libretro.com/';
+/* Las carátulas de Libretro también están en GitHub (organización libretro-thumbnails).
+   Desde ahí sí se puede leer la lista de archivos y cargar las imágenes. */
 const listados = {};   // carpeta -> promesa con la lista de archivos (o null si no se pudo leer)
+
+function repoDe(carpeta) { return carpeta.replace(/ /g, '_'); }
 
 function listarCarpeta(carpeta) {
   if (!listados[carpeta]) {
     listados[carpeta] = (async () => {
+      const repo = repoDe(carpeta);
+      const claveCache = `lista-libretro:${repo}`;
       try {
-        const resp = await fetch(`${BASE_LIBRETRO}${encodeURIComponent(carpeta)}/Named_Boxarts/`);
-        if (!resp.ok) return null;
-        const html = await resp.text();
-        const out = [];
-        for (const m of html.matchAll(/href="([^"?#]+\.png)"/gi)) {
-          const archivo = decodeURIComponent(m[1].replace(/&amp;/g, '&'));
-          out.push(archivo);
-        }
-        return out.length ? out : null;
+        const c = JSON.parse(localStorage.getItem(claveCache) || 'null');
+        if (c && Date.now() - c.t < 30 * 864e5 && c.lista.length) return c.lista;
+      } catch (_) {}
+      try {
+        const api = `https://api.github.com/repos/libretro-thumbnails/${repo}/git/trees/`;
+        const raiz = await (await fetch(api + 'master')).json();
+        const dir = (raiz.tree || []).find((x) => x.path === 'Named_Boxarts');
+        if (!dir) return null;
+        const sub = await (await fetch(dir.url)).json();
+        const lista = (sub.tree || [])
+          .map((x) => x.path)
+          .filter((n) => /\.png$/i.test(n) && /pokemon/i.test(aplanar(n)));
+        if (!lista.length) return null;
+        try { localStorage.setItem(claveCache, JSON.stringify({ t: Date.now(), lista })); } catch (_) {}
+        return lista;
       } catch (_) { return null; }
     })();
   }
@@ -314,7 +325,7 @@ function puntuar(nombreArchivo) {
 }
 
 function urlLibretro(carpeta, archivo) {
-  return `${BASE_LIBRETRO}${encodeURIComponent(carpeta)}/Named_Boxarts/${encodeURIComponent(archivo)}`;
+  return `https://raw.githubusercontent.com/libretro-thumbnails/${repoDe(carpeta)}/master/Named_Boxarts/${encodeURIComponent(archivo)}`;
 }
 
 function probarImagen(url) {
@@ -328,7 +339,7 @@ function probarImagen(url) {
 }
 
 async function buscarPortada(r) {
-  const clave = `portada2-url:${r.id}`;
+  const clave = `portada3-url:${r.id}`;
   try {
     const g = localStorage.getItem(clave);
     if (g && g !== '-') return g;
@@ -341,22 +352,18 @@ async function buscarPortada(r) {
   const nombreExacto = (r.archivo || '').replace(/\.[^.]+$/, '').replace(/^\d{1,5}\s*-\s*/, '').trim();
   let encontrada = null;
 
-  // 1) Mismo nombre que el archivo
-  for (const c of carpetas) {
-    const u = urlLibretro(c, nombreExacto.replace(/[&*\/:`<>?\\|]/g, '_') + '.png');
-    if (nombreExacto && await probarImagen(u)) { encontrada = u; break; }
-  }
-
   // 2) Lista de Libretro: se elige la mejor carátula de ese juego
-  if (!encontrada && juego) {
-    const re = BUSCAR_EN_LIBRETRO[juego[0]];
+  if (!encontrada) {
+    const re = juego ? BUSCAR_EN_LIBRETRO[juego[0]] : null;
+    const exacto = nombreExacto.replace(/[&*\/:`<>?\\|]/g, '_') + '.png';
     let mejor = null;
     for (const c of carpetas) {
       const lista = await listarCarpeta(c);
       if (!lista) continue;
       for (const f of lista) {
+        if (f === exacto) { mejor = { c, f, p: 1000 }; break; }
         const n = aplanar(f.replace(/\.png$/i, ''));
-        if (!n.includes('pokemon') || !re.test(n)) continue;
+        if (!re || !n.includes('pokemon') || !re.test(n)) continue;
         const p = puntuar(f);
         if (p > -100 && (!mejor || p > mejor.p)) mejor = { c, f, p };
       }
@@ -468,7 +475,7 @@ async function renderBiblioteca() {
       await romsBorrar(r.id);
       for (const s of SLOTS) await saveBorrar(`${r.id}:${s.id}`);
       await saveBorrar(`portada:${r.id}`);
-      try { localStorage.removeItem(`portada2-url:${r.id}`); } catch (_) {}
+      try { localStorage.removeItem(`portada3-url:${r.id}`); } catch (_) {}
       renderBiblioteca();
     };
     listaJuegos.appendChild(card);
