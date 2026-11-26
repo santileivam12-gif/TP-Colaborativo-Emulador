@@ -352,7 +352,19 @@ async function renderBiblioteca() {
     const img = card.querySelector('.portada');
     const propia = await saveObtener(`portada:${r.id}`);
     const mostrar = (src) => {
-      img.onload = () => { img.hidden = false; card.classList.add('con-foto'); };
+      img.onload = async () => {
+        try { await img.decode(); } catch (_) {}
+        img.hidden = false;
+        card.classList.add('con-foto');
+        // Chrome sin GPU a veces no dibuja la imagen hasta que algo fuerza un repintado
+        const cart = card.querySelector('.cart');
+        cart.style.display = 'none';
+        void cart.offsetHeight;
+        cart.style.display = '';
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          img.style.transform = 'translateZ(0)';
+        }));
+      };
       img.onerror = () => img.remove();
       img.src = src;
     };

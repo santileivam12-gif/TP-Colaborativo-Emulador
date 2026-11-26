@@ -424,3 +424,6 @@ kbd {
 @media (max-width: 640px) {
   .juego .cart { height: 130px; }
 }
+/* Cada carátula en su propia capa, para que Chrome la repinte bien */
+.juego .cart { transform: translateZ(0); }
+.juego .cart .portada { will-change: transform; backface-visibility: hidden; }
