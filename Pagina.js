@@ -259,7 +259,12 @@ async function jugar(id) {
   if (!rom) return toast('No se encontró el juego');
 
   const sistema = rom.sistema || 'gba';
-  juegoActual = { id: rom.id, nombre: rom.nombre, sistema };
+  juegoActual = {
+    id: rom.id,
+    nombre: rom.nombre,
+    sistema,
+    etiqueta: rom.etiqueta || ETIQUETA_SISTEMA[sistema] || sistema.toUpperCase(),
+  };
   $('titulo-juego').textContent = rom.nombre;
   vistaBiblioteca.classList.add('oculto');
   vistaJuego.classList.remove('oculto');
@@ -407,14 +412,86 @@ let guardando = false;
 const conTiempo = (p, ms) =>
   Promise.race([Promise.resolve(p), new Promise((r) => setTimeout(() => r(null), ms))]);
 
+/* ---------- Captura de pantalla para la miniatura del slot ---------- */
+let metodoCapturaOk = null; // se recuerda el método que funcionó
+
+async function aBitmap(x) {
+  if (!x) return null;
+  if (x instanceof HTMLCanvasElement) return createImageBitmap(x);
+  if (x instanceof Uint8Array || x instanceof ArrayBuffer) {
+    return createImageBitmap(new Blob([x], { type: 'image/png' }));
+  }
+  return createImageBitmap(x); // Blob
+}
+
+// Descarta imágenes totalmente negras (un canvas WebGL leído fuera de tiempo)
+function bitmapValido(bmp) {
+  const c = document.createElement('canvas');
+  c.width = 24;
+  c.height = 24;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(bmp, 0, 0, 24, 24);
+  const d = ctx.getImageData(0, 0, 24, 24).data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i] > 14 || d[i + 1] > 14 || d[i + 2] > 14) return true;
+  }
+  return false;
+}
+
+// Reduce la imagen para que ocupe poco espacio
+function reducir(bmp, anchoMax = 320) {
+  const esc = Math.min(1, anchoMax / bmp.width);
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(bmp.width * esc));
+  c.height = Math.max(1, Math.round(bmp.height * esc));
+  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+  return new Promise((res) => c.toBlob((b) => res(b), 'image/jpeg', 0.82));
+}
+
+async function capturarPantalla() {
+  const e = window.EJS_emulator;
+  const g = gm();
+  const metodos = {
+    retroarch: () => new Promise((res) => e.screenshot((b) => res(b), 'retroarch')),
+    gameManager: () => g.screenshot(),
+    canvasEJS: () => new Promise((res) => e.screenshot((b) => res(b), 'canvas')),
+    canvas: () => document.querySelector('#game canvas'),
+  };
+  const orden = Object.keys(metodos);
+  if (metodoCapturaOk) orden.sort((a, b) => (a === metodoCapturaOk ? -1 : b === metodoCapturaOk ? 1 : 0));
+
+  for (const nombre of orden) {
+    try {
+      const crudo = await conTiempo(metodos[nombre](), 900);
+      const bmp = await aBitmap(crudo);
+      if (bmp && bmp.width > 8 && bitmapValido(bmp)) {
+        metodoCapturaOk = nombre;
+        console.log(`[captura] método que funcionó: ${nombre}`);
+        return await reducir(bmp);
+      }
+    } catch (err) {
+      console.log(`[captura] ${nombre} no funcionó:`, err && err.message);
+    }
+  }
+  console.warn('[captura] ningún método devolvió una imagen');
+  return null;
+}
+
 async function guardarSlot(slot, silencioso = false) {
   const g = gm();
   if (!g || !emuListo || !juegoActual || guardando) return;
   guardando = true;
   const key = `${juegoActual.id}:${slot}`;
-  const estabaCorriendo = pausarEmu();
+  let estabaCorriendo = false;
 
   try {
+    // 1) La captura se toma ANTES de pausar: el emulador tiene que estar
+    //    corriendo para poder entregar la imagen del cuadro actual.
+    let captura = null;
+    if (!silencioso) captura = await conTiempo(capturarPantalla(), 3000);
+
+    // 2) Se pausa y se lee el estado
+    estabaCorriendo = pausarEmu();
     await esperar(80); // deja terminar el cuadro en curso
     const crudo = g.getState();
     if (!crudo || !crudo.length) throw new Error('El emulador devolvió un estado vacío');
@@ -423,36 +500,18 @@ async function guardarSlot(slot, silencioso = false) {
     const copia = new Uint8Array(crudo);
     const firma = firmaEstado(copia);
     console.log(`[guardado] slot ${slot} · ${copia.length} bytes · huella ${firma}`);
-    const estado = new Blob([copia]);
 
-    // 1) Se guarda el estado YA, sin esperar a la captura de pantalla
     await saveGuardar({
       key,
       romId: juegoActual.id,
       slot,
-      estado,
+      estado: new Blob([copia]),
       firma,
-      captura: null,
+      captura,
       fecha: Date.now(),
     });
     renderSlots();
     if (!silencioso) toast(slot === 1 ? 'Guardado rápido listo' : 'Partida guardada');
-
-    // 2) La captura es opcional y con límite de tiempo: si el emulador no la
-    //    entrega, el guardado igual queda hecho
-    if (!silencioso) {
-      try {
-        const shot = await conTiempo(g.screenshot(), 1500);
-        if (shot && shot.length) {
-          const reg = await saveObtener(key);
-          if (reg) {
-            reg.captura = new Blob([shot], { type: 'image/png' });
-            await saveGuardar(reg);
-            renderSlots();
-          }
-        }
-      } catch (_) { /* sin captura */ }
-    }
   } catch (err) {
     console.error('Error al guardar:', err);
     if (!silencioso) toast('No se pudo guardar (mirá la consola F12)');
@@ -496,19 +555,20 @@ async function borrarSlot(slot) {
 async function renderSlots() {
   if (!juegoActual) return;
   contSlots.innerHTML = '';
+  contSlots.dataset.sistema = juegoActual.sistema;
 
   for (const s of SLOTS) {
     const reg = await saveObtener(`${juegoActual.id}:${s.id}`);
     const el = document.createElement('div');
     el.className = 'slot';
 
-    let miniHTML = '<div class="mini">vacío</div>';
+    let miniHTML = '<div class="mini vacio-slot">Vacío</div>';
     if (reg && reg.captura) {
       const u = URL.createObjectURL(reg.captura);
       urlsTemporales.push(u);
       miniHTML = `<div class="mini"><img src="${u}" alt=""></div>`;
     } else if (reg) {
-      miniHTML = '<div class="mini">sin imagen</div>';
+      miniHTML = `<div class="mini ph ${juegoActual.sistema}">${juegoActual.etiqueta}</div>`;
     }
 
     el.innerHTML = `
@@ -516,7 +576,7 @@ async function renderSlots() {
         ${miniHTML}
         <div class="info">
           <b>${s.nombre}</b>
-          <small>${reg ? fecha(reg.fecha) + (reg.firma ? ' · #' + reg.firma.slice(0, 4) : '') : 'Sin datos'}</small>
+          <small>${reg ? fecha(reg.fecha) : 'Sin datos'}</small>
         </div>
       </div>
       <div class="botones">

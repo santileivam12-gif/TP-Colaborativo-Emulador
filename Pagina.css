@@ -299,3 +299,26 @@ kbd {
 
 #pantalla[data-sistema="gb"]  { aspect-ratio: 10 / 9; max-width: 560px; margin: 0 auto; }
 #pantalla[data-sistema="n64"] { aspect-ratio: 4 / 3; }
+
+/* ---------- Miniaturas de las partidas guardadas ---------- */
+.slot .mini.ph {
+  background: linear-gradient(135deg, var(--acento), #3b2a9c);
+  color: #fff;
+  font-weight: 800;
+  letter-spacing: 2px;
+  font-size: .85rem;
+}
+.slot .mini.ph.nds { background: linear-gradient(135deg, #e0457b, #8c1f55); }
+.slot .mini.ph.gb  { background: linear-gradient(135deg, #7a9a2a, #3f5a12); }
+.slot .mini.ph.n64 { background: linear-gradient(135deg, #e0623a, #8a2a12); }
+
+.slot .mini.vacio-slot {
+  background: transparent;
+  border: 1px dashed var(--borde);
+  color: var(--suave);
+}
+
+/* La miniatura respeta la forma de la pantalla de cada consola */
+#slots[data-sistema="nds"] .mini { aspect-ratio: 2 / 3; width: 62px; }
+#slots[data-sistema="gb"]  .mini { aspect-ratio: 10 / 9; width: 76px; }
+#slots[data-sistema="n64"] .mini { aspect-ratio: 4 / 3; }
