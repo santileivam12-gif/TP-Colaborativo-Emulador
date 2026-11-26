@@ -24,6 +24,16 @@ const btnFF = $('btn-ff');
 const selFF = $('sel-ff');
 const chkLigero = $('chk-ligero');
 const selSalto = $('sel-salto');
+const selZip = $('sel-zip');
+
+// Recordar de qué consola son los archivos comprimidos
+try {
+  const z = localStorage.getItem('pokeemu-zip');
+  if (z) selZip.value = z;
+} catch (_) {}
+selZip.addEventListener('change', () => {
+  try { localStorage.setItem('pokeemu-zip', selZip.value); } catch (_) {}
+});
 const estadoHilos = $('estado-hilos');
 
 /* Multihilo: solo disponible si el servidor envía las cabeceras COOP/COEP
@@ -145,23 +155,39 @@ function descargar(blob, nombre) {
 /* =========================================================
    Biblioteca
    ========================================================= */
+/* Extensión → consola (los nombres coinciden con los núcleos de EmulatorJS) */
+const SISTEMAS = {
+  gb:  { sistema: 'gb',  etiqueta: 'GB'  },
+  gbc: { sistema: 'gb',  etiqueta: 'GBC' },
+  gba: { sistema: 'gba', etiqueta: 'GBA' },
+  nds: { sistema: 'nds', etiqueta: 'DS'  },
+  z64: { sistema: 'n64', etiqueta: 'N64' },
+  n64: { sistema: 'n64', etiqueta: 'N64' },
+  v64: { sistema: 'n64', etiqueta: 'N64' },
+};
+const ETIQUETA_SISTEMA = { gb: 'GB', gba: 'GBA', nds: 'DS', n64: 'N64' };
+
+function detectarSistema(nombre) {
+  const ext = (nombre.split('.').pop() || '').toLowerCase();
+  if (SISTEMAS[ext]) return SISTEMAS[ext];
+  if (ext === 'zip' || ext === '7z') {
+    const sis = selZip.value;
+    return { sistema: sis, etiqueta: ETIQUETA_SISTEMA[sis] || sis.toUpperCase() };
+  }
+  return null; // formato no soportado
+}
+
 async function agregarArchivos(files) {
   let n = 0;
   for (const f of files) {
-    if (!/\.(gba|nds|zip)$/i.test(f.name)) continue;
-
-    // Detectar el sistema por la extensión (en un .zip se pregunta)
-    let sistema = /\.nds$/i.test(f.name) ? 'nds' : 'gba';
-    if (/\.zip$/i.test(f.name)) {
-      sistema = confirm(
-        `"${f.name}" es un archivo ZIP.\n\nAceptar = juego de Nintendo DS\nCancelar = juego de Game Boy Advance`
-      ) ? 'nds' : 'gba';
-    }
+    const info = detectarSistema(f.name);
+    if (!info) continue;
 
     const id = `${f.name}-${f.size}`;
     await romsGuardar({
       id,
-      sistema,
+      sistema: info.sistema,
+      etiqueta: info.etiqueta,
       nombre: limpiarNombre(f.name),
       archivo: f.name,
       size: f.size,
@@ -171,7 +197,7 @@ async function agregarArchivos(files) {
     n++;
   }
   if (n) toast(n === 1 ? 'Juego agregado' : `${n} juegos agregados`);
-  else toast('Elegí un archivo .gba o .nds');
+  else toast('Formato no soportado. Usá .gb .gbc .gba .nds .z64 .n64 .v64 .zip o .7z');
   renderBiblioteca();
 }
 
@@ -185,7 +211,7 @@ async function renderBiblioteca() {
     card.className = 'juego';
     const sis = r.sistema || 'gba';
     card.innerHTML = `
-      <div class="cart ${sis}">${sis === 'nds' ? 'DS' : 'GBA'}</div>
+      <div class="cart ${sis}">${r.etiqueta || ETIQUETA_SISTEMA[sis] || sis.toUpperCase()}</div>
       <div>
         <h3></h3>
         <small>${tamano(r.size)}</small>
@@ -238,6 +264,7 @@ async function jugar(id) {
   vistaBiblioteca.classList.add('oculto');
   vistaJuego.classList.remove('oculto');
   document.body.classList.add('jugando');
+  $('pantalla').dataset.sistema = sistema;
   $('pantalla').classList.toggle('ds', sistema === 'nds');
   $('nota-ds').classList.toggle('oculto', sistema !== 'nds');
   renderSlots();
@@ -247,7 +274,7 @@ async function jugar(id) {
 
   // --- Configuración de EmulatorJS ---
   window.EJS_player = '#game';
-  window.EJS_core = sistema;   // 'gba' o 'nds'
+  window.EJS_core = sistema;   // 'gb', 'gba', 'nds' o 'n64'
   window.EJS_gameName = rom.nombre;
   window.EJS_gameUrl = url;
   window.EJS_pathtodata = CDN;
@@ -258,6 +285,8 @@ async function jugar(id) {
   window.EJS_defaultOptions = opcionesEmulador(chkLigero.checked, sistema);
   // Solo dejamos los botones que no duplican los nuestros
   window.EJS_Buttons = {
+    saveSavFiles: true,
+    loadSavFiles: true,
     playPause: true,
     restart: true,
     mute: true,

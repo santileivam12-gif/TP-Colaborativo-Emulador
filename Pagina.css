@@ -292,3 +292,10 @@ kbd {
   color: var(--suave);
 }
 .estado.ok { color: var(--ok); border-color: var(--ok); }
+
+/* ---------- Otras consolas ---------- */
+.juego .cart.gb  { background: linear-gradient(135deg, #7a9a2a, #3f5a12); }
+.juego .cart.n64 { background: linear-gradient(135deg, #e0623a, #8a2a12); }
+
+#pantalla[data-sistema="gb"]  { aspect-ratio: 10 / 9; max-width: 560px; margin: 0 auto; }
+#pantalla[data-sistema="n64"] { aspect-ratio: 4 / 3; }

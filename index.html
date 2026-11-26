@@ -13,15 +13,32 @@
   <main id="vista-biblioteca" class="vista">
     <header class="marca">
       <div class="logo">Poke<span>Emulador</span></div>
-      <p>Jugá archivos <b>.gba</b> (Game Boy Advance) y <b>.nds</b> (Nintendo DS), como Pokémon Rojo Fuego o Pokémon Diamante.</p>
+      <p>
+        Todos los juegos de Pokémon que se pueden emular en el navegador:
+        <b>Game Boy</b> (.gb), <b>Game Boy Color</b> (.gbc), <b>Game Boy Advance</b> (.gba),
+        <b>Nintendo DS</b> (.nds) y <b>Nintendo 64</b> (.z64 .n64 .v64), también comprimidos en .zip o .7z.
+      </p>
       <p>Tus juegos se guardan en este navegador. No hace falta volver a elegirlos.</p>
       <p id="estado-hilos" class="estado"></p>
     </header>
 
     <label id="zona-drop" class="drop" for="rom">
-      <input type="file" id="rom" accept=".gba,.nds,.zip" multiple hidden>
+      <input type="file" id="rom" accept=".gb,.gbc,.gba,.nds,.z64,.n64,.v64,.zip,.7z" multiple hidden>
       <strong>Arrastrá tu juego acá</strong>
-      <span>o hacé clic para elegir uno o varios archivos .gba o .nds</span>
+      <span>o hacé clic para elegir uno o varios archivos (.gb .gbc .gba .nds .z64 .n64 .v64 .zip .7z)</span>
+    </label>
+
+    <label class="opcion">
+      <span>
+        <b>Archivos comprimidos (.zip / .7z)</b>: elegí de qué consola son los juegos
+        comprimidos que vas a subir. Los demás formatos se detectan solos.
+      </span>
+      <select id="sel-zip">
+        <option value="gba">Game Boy Advance</option>
+        <option value="nds">Nintendo DS</option>
+        <option value="gb">Game Boy / Game Boy Color</option>
+        <option value="n64">Nintendo 64</option>
+      </select>
     </label>
 
     <label class="opcion">
