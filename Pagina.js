@@ -226,51 +226,95 @@ function urlPortadaOnline(r) {
 }
 
 /* ---------- Búsqueda automática de carátulas ----------
-   1) Libretro con el nombre exacto y varias variantes de región.
-   2) Si no hay, Wikipedia (juegos oficiales de Pokémon, también con nombres en español).
-   El resultado se recuerda para no volver a buscar. */
-const JUEGOS_WIKI = [
-  [/rojo fuego|fire ?red/, 'Pokémon FireRed and LeafGreen'],
-  [/verde hoja|leaf ?green/, 'Pokémon FireRed and LeafGreen'],
-  [/heart ?gold|soul ?silver|oro heart|plata soul/, 'Pokémon HeartGold and SoulSilver'],
-  [/platino|platinum/, 'Pokémon Platinum'],
-  [/diamante|diamond|perla|pearl/, 'Pokémon Diamond and Pearl'],
-  [/black ?2|white ?2|negra ?2|blanca ?2/, 'Pokémon Black 2 and White 2'],
-  [/black|white|negra|blanca/, 'Pokémon Black and White'],
-  [/esmeralda|emerald/, 'Pokémon Emerald'],
-  [/rubi|ruby|zafiro|sapphire/, 'Pokémon Ruby and Sapphire'],
-  [/cristal|crystal/, 'Pokémon Crystal'],
-  [/\boro\b|\bplata\b|gold|silver/, 'Pokémon Gold and Silver'],
-  [/amarilla|yellow/, 'Pokémon Yellow'],
-  [/\broja\b|\bazul\b|\bred\b|\bblue\b|\brojo\b/, 'Pokémon Red and Blue'],
-  [/stadium ?2/, 'Pokémon Stadium 2'],
-  [/stadium/, 'Pokémon Stadium'],
-  [/snap/, 'Pokémon Snap'],
-  [/pinball/, 'Pokémon Pinball'],
-  [/puzzle league/, 'Pokémon Puzzle League'],
-  [/puzzle challenge/, 'Pokémon Puzzle Challenge'],
-  [/trading card|cartas/, 'Pokémon Trading Card Game (video game)'],
-  [/mystery dungeon|mazmorra/, 'Pokémon Mystery Dungeon: Red Rescue Team and Blue Rescue Team'],
-  [/colosseum/, 'Pokémon Colosseum'],
+   Se identifica el juego por su nombre (en español o inglés) y se busca la
+   carátula en la lista pública de Libretro, eligiendo la mejor región
+   (España > Europa > USA). Si no se puede leer la lista, se prueban nombres
+   conocidos. El resultado se recuerda para no buscar de nuevo. */
+const JUEGOS = [
+  // [clave, regex sobre el nombre sin espacios ni símbolos, nombre en inglés para el plan B]
+  ['firered',   /firered|rojofuego/,                        'Pokemon - FireRed Version'],
+  ['leafgreen', /leafgreen|verdehoja/,                      'Pokemon - LeafGreen Version'],
+  ['heartgold', /heartgold/,                                'Pokemon - HeartGold Version'],
+  ['soulsilver',/soulsilver/,                               'Pokemon - SoulSilver Version'],
+  ['platinum',  /platinum|platino/,                         'Pokemon - Platinum Version'],
+  ['diamond',   /diamond|diamante/,                         'Pokemon - Diamond Version'],
+  ['pearl',     /pearl|perla/,                              'Pokemon - Pearl Version'],
+  ['black2',    /black2|negra2/,                            'Pokemon - Black Version 2'],
+  ['white2',    /white2|blanca2/,                           'Pokemon - White Version 2'],
+  ['black',     /black|negra/,                              'Pokemon - Black Version'],
+  ['white',     /white|blanca/,                             'Pokemon - White Version'],
+  ['emerald',   /emerald|esmeralda/,                        'Pokemon - Emerald Version'],
+  ['ruby',      /ruby|rubi/,                                'Pokemon - Ruby Version'],
+  ['sapphire',  /sapphire|zafiro/,                          'Pokemon - Sapphire Version'],
+  ['crystal',   /crystal|cristal/,                          'Pokemon - Crystal Version'],
+  ['gold',      /goldversion|edicionoro|pokemongold/,       'Pokemon - Gold Version'],
+  ['silver',    /silverversion|edicionplata|pokemonsilver/, 'Pokemon - Silver Version'],
+  ['yellow',    /yellow|amarilla/,                          'Pokemon - Yellow Version - Special Pikachu Edition'],
+  ['red',       /redversion|edicionroja|pokemonred/,        'Pokemon - Red Version'],
+  ['blue',      /blueversion|edicionazul|pokemonblue/,      'Pokemon - Blue Version'],
+  ['stadium2',  /stadium2/,                                 'Pokemon Stadium 2'],
+  ['stadium',   /stadium/,                                  'Pokemon Stadium'],
+  ['snap',      /snap/,                                     'Pokemon Snap'],
+  ['pinball',   /pinball/,                                  'Pokemon Pinball'],
+  ['puzzle',    /puzzle/,                                   'Pokemon Puzzle League'],
 ];
+// Cómo se reconoce cada juego dentro de los nombres de Libretro (inglés o español)
+const BUSCAR_EN_LIBRETRO = {
+  firered: /firered|rojofuego/, leafgreen: /leafgreen|verdehoja/,
+  heartgold: /heartgold/, soulsilver: /soulsilver/,
+  platinum: /platinum|platino/, diamond: /diamond|diamante/, pearl: /pearl|perla/,
+  black2: /black2|negra2/, white2: /white2|blanca2/,
+  black: /black(?!2)|negra(?!2)/, white: /white(?!2)|blanca(?!2)/,
+  emerald: /emerald|esmeralda/, ruby: /ruby|rubi/, sapphire: /sapphire|zafiro/,
+  crystal: /crystal|cristal/, gold: /goldversion|edicionoro/, silver: /silverversion|edicionplata/,
+  yellow: /yellow|amarilla/, red: /redversion|edicionroja/, blue: /blueversion|edicionazul/,
+  stadium2: /stadium2/, stadium: /stadium(?!2)/, snap: /snap/, pinball: /pinball/, puzzle: /puzzle/,
+};
 
 function sinTildes(t) { return t.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
+function aplanar(t) { return sinTildes(t).toLowerCase().replace(/[^a-z0-9]/g, ''); }
 
-function candidatasLibretro(r) {
+function carpetasLibretro(r) {
   const sis = r.sistema || 'gba';
-  const clave = sis === 'gb' && r.etiqueta === 'GBC' ? 'gbc' : sis;
-  const carpeta = CARPETA_LIBRETRO[clave];
-  if (!carpeta || !r.archivo) return [];
-  const limpiar = (n) => n.replace(/[&*\/:`<>?\\|]/g, '_');
-  const url = (n) => `https://thumbnails.libretro.com/${encodeURIComponent(carpeta)}/Named_Boxarts/${encodeURIComponent(limpiar(n))}.png`;
+  if (sis === 'gb') return [CARPETA_LIBRETRO.gbc, CARPETA_LIBRETRO.gb];
+  const c = CARPETA_LIBRETRO[sis];
+  return c ? [c] : [];
+}
 
-  let base = r.archivo.replace(/\.[^.]+$/, '').replace(/^\d{1,5}\s*-\s*/, '').trim();
-  const titulo = base.replace(/\s*[\(\[].*$/, '').trim();   // sin los paréntesis
-  const nombres = [base, titulo];
-  for (const reg of ['Spain', 'Europe', 'USA', 'USA, Europe', 'Europe, Australia', 'Japan']) {
-    nombres.push(`${titulo} (${reg})`);
+const BASE_LIBRETRO = 'https://thumbnails.libretro.com/';
+const listados = {};   // carpeta -> promesa con la lista de archivos (o null si no se pudo leer)
+
+function listarCarpeta(carpeta) {
+  if (!listados[carpeta]) {
+    listados[carpeta] = (async () => {
+      try {
+        const resp = await fetch(`${BASE_LIBRETRO}${encodeURIComponent(carpeta)}/Named_Boxarts/`);
+        if (!resp.ok) return null;
+        const html = await resp.text();
+        const out = [];
+        for (const m of html.matchAll(/href="([^"?#]+\.png)"/gi)) {
+          const archivo = decodeURIComponent(m[1].replace(/&amp;/g, '&'));
+          out.push(archivo);
+        }
+        return out.length ? out : null;
+      } catch (_) { return null; }
+    })();
   }
-  return [...new Set(nombres)].map(url);
+  return listados[carpeta];
+}
+
+function puntuar(nombreArchivo) {
+  if (/\((Beta|Proto|Demo|Sample|Kiosk|Unl)/i.test(nombreArchivo)) return -100;
+  let p = 0;
+  if (/\(Spain/i.test(nombreArchivo)) p += 30;
+  else if (/\(Europe/i.test(nombreArchivo)) p += 20;
+  else if (/\(USA/i.test(nombreArchivo)) p += 10;
+  if (/Rev/i.test(nombreArchivo)) p += 1;
+  return p;
+}
+
+function urlLibretro(carpeta, archivo) {
+  return `${BASE_LIBRETRO}${encodeURIComponent(carpeta)}/Named_Boxarts/${encodeURIComponent(archivo)}`;
 }
 
 function probarImagen(url) {
@@ -283,39 +327,58 @@ function probarImagen(url) {
   });
 }
 
-async function portadaWikipedia(r) {
-  const nombre = sinTildes((r.nombre || r.archivo || '').toLowerCase());
-  const hit = JUEGOS_WIKI.find(([re]) => re.test(nombre));
-  if (!hit || !/pokemon|pokémon|stadium|snap|pinball/.test(nombre)) return null;
-  const api = 'https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*'
-    + '&generator=search&gsrlimit=3&prop=pageimages&piprop=thumbnail&pithumbsize=400'
-    + '&gsrsearch=' + encodeURIComponent(hit[1]);
-  const resp = await fetch(api);
-  const datos = await resp.json();
-  const paginas = Object.values((datos.query && datos.query.pages) || {})
-    .sort((a, b) => a.index - b.index);
-  const con = paginas.find((p) => p.thumbnail && p.thumbnail.source);
-  return con ? con.thumbnail.source : null;
-}
-
 async function buscarPortada(r) {
-  const clave = `portada-url:${r.id}`;
+  const clave = `portada2-url:${r.id}`;
   try {
-    const guardada = localStorage.getItem(clave);
-    if (guardada && guardada !== '-') return guardada;
-    if (guardada === '-' && Date.now() - Number(localStorage.getItem(clave + ':t') || 0) < 7 * 864e5) return null;
+    const g = localStorage.getItem(clave);
+    if (g && g !== '-') return g;
+    if (g === '-' && Date.now() - Number(localStorage.getItem(clave + ':t') || 0) < 864e5) return null;
   } catch (_) {}
 
+  const carpetas = carpetasLibretro(r);
+  const plano = aplanar(r.nombre || r.archivo || '');
+  const juego = JUEGOS.find(([, re]) => re.test(plano));
+  const nombreExacto = (r.archivo || '').replace(/\.[^.]+$/, '').replace(/^\d{1,5}\s*-\s*/, '').trim();
   let encontrada = null;
-  for (const u of candidatasLibretro(r)) {
-    if (await probarImagen(u)) { encontrada = u; break; }
+
+  // 1) Mismo nombre que el archivo
+  for (const c of carpetas) {
+    const u = urlLibretro(c, nombreExacto.replace(/[&*\/:`<>?\\|]/g, '_') + '.png');
+    if (nombreExacto && await probarImagen(u)) { encontrada = u; break; }
   }
-  if (!encontrada) {
-    try {
-      const w = await portadaWikipedia(r);
-      if (w && await probarImagen(w)) encontrada = w;
-    } catch (err) { console.warn('Portada Wikipedia:', err); }
+
+  // 2) Lista de Libretro: se elige la mejor carátula de ese juego
+  if (!encontrada && juego) {
+    const re = BUSCAR_EN_LIBRETRO[juego[0]];
+    let mejor = null;
+    for (const c of carpetas) {
+      const lista = await listarCarpeta(c);
+      if (!lista) continue;
+      for (const f of lista) {
+        const n = aplanar(f.replace(/\.png$/i, ''));
+        if (!n.includes('pokemon') || !re.test(n)) continue;
+        const p = puntuar(f);
+        if (p > -100 && (!mejor || p > mejor.p)) mejor = { c, f, p };
+      }
+    }
+    if (mejor) encontrada = urlLibretro(mejor.c, mejor.f);
   }
+
+  // 3) Plan B (si la lista no se pudo leer): nombres conocidos en inglés
+  if (!encontrada && juego) {
+    const regiones = [' (Spain)', ' (Europe)', ' (USA, Europe)', ' (USA)', ' (USA, Europe) (Rev 1)'];
+    const extras = ['', ' (SGB Enhanced)', ' (SGB Enhanced) (GB Compatible)', ' (CGB+SGB Enhanced)'];
+    busqueda:
+    for (const c of carpetas) {
+      for (const reg of regiones) {
+        for (const ex of extras) {
+          const u = urlLibretro(c, `${juego[2]}${reg}${ex}.png`);
+          if (await probarImagen(u)) { encontrada = u; break busqueda; }
+        }
+      }
+    }
+  }
+
   try {
     localStorage.setItem(clave, encontrada || '-');
     if (!encontrada) localStorage.setItem(clave + ':t', String(Date.now()));
@@ -405,7 +468,7 @@ async function renderBiblioteca() {
       await romsBorrar(r.id);
       for (const s of SLOTS) await saveBorrar(`${r.id}:${s.id}`);
       await saveBorrar(`portada:${r.id}`);
-      try { localStorage.removeItem(`portada-url:${r.id}`); } catch (_) {}
+      try { localStorage.removeItem(`portada2-url:${r.id}`); } catch (_) {}
       renderBiblioteca();
     };
     listaJuegos.appendChild(card);
