@@ -330,3 +330,42 @@ kbd {
 /* El dibujo del emulador queda aislado y no puede "manchar" el resto de la página */
 #pantalla { contain: paint; isolation: isolate; }
 .barra-superior { position: relative; z-index: 2; }
+
+/* ---------- Intento de mitigación: texto corrupto mientras corre el emulador ----------
+   Cada zona de texto se dibuja en su propia capa, separada de la del emulador.
+   Si no sirve, se puede borrar este bloque sin afectar nada más. */
+.jugando .barra-superior,
+.jugando .panel,
+.jugando .herramientas,
+.jugando .atajos {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* ---------- Ajustes para celular y pantallas angostas ---------- */
+.opcion span { flex: 1; min-width: 0; }
+.opcion select { max-width: 100%; min-width: 0; }
+
+@media (max-width: 640px) {
+  .vista { padding: 20px 14px 50px; }
+  .logo { font-size: 2.1rem; }
+  .marca p { font-size: .92rem; }
+
+  /* Las opciones con selector: texto arriba, selector abajo a todo el ancho */
+  .opcion:has(select) {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .opcion:has(select) select { width: 100%; }
+
+  .drop { padding: 28px 14px; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .juego { padding: 12px; }
+
+  .barra-superior .btn { padding: 9px 12px; font-size: .85rem; }
+  .herramientas .btn { flex: 1 1 auto; }
+  .herramientas select { flex: 0 0 auto; }
+
+  #pantalla.ds { height: min(70vh, 640px); }
+  .slot .botones .btn { padding: 8px 6px; }
+}
