@@ -113,15 +113,15 @@ body {
   font-size: .92rem;
   font-weight: 600;
   cursor: pointer;
-  transition: filter .15s, background .15s;
+  transition: background .15s;
 }
-.btn:hover { filter: brightness(1.12); }
-.btn:active { transform: scale(.98); }
+.btn:not(:disabled):hover { background: var(--acento-2); }
+.btn:active { opacity: .85; }
 .btn.sec { background: var(--card-2); border: 1px solid var(--borde); }
 .btn.peligro { background: transparent; color: var(--peligro); border: 1px solid var(--borde); }
 .btn.activo { background: var(--ok); color: #05261a; }
 .btn.grande { flex: 1; }
-.btn:disabled { opacity: .4; cursor: not-allowed; filter: none; }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
 
 select {
   background: var(--card-2);
@@ -322,3 +322,11 @@ kbd {
 #slots[data-sistema="nds"] .mini { aspect-ratio: 2 / 3; width: 62px; }
 #slots[data-sistema="gb"]  .mini { aspect-ratio: 10 / 9; width: 76px; }
 #slots[data-sistema="n64"] .mini { aspect-ratio: 4 / 3; }
+
+/* ---------- Evitar fallos de repintado (sobre todo con Chrome sin GPU) ---------- */
+.btn.sec:not(:disabled):hover { background: var(--card); border-color: var(--acento); }
+.btn.peligro:not(:disabled):hover { background: var(--card-2); }
+
+/* El dibujo del emulador queda aislado y no puede "manchar" el resto de la página */
+#pantalla { contain: paint; isolation: isolate; }
+.barra-superior { position: relative; z-index: 2; }
